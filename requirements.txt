@@ -1,0 +1,10 @@
+Django>=4.2
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+python-dotenv
+opencv-python
+pytesseract
+presidio_anonymizer
+presidio_image_redactor
+presidio_analyzer
