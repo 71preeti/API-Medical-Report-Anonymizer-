@@ -3,6 +3,14 @@ import pytesseract
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 import re
+# add these imports near the top of your existing file (below your current imports)
+import fitz               # pip install pymupdf
+from PIL import Image     # pip install pillow
+import io
+import tempfile
+import os
+import numpy as np        # pip install numpy
+
 
 analyzer = AnalyzerEngine()
 anonymizer = AnonymizerEngine()
@@ -232,4 +240,69 @@ def anonymize_image(image_path, output_path):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
     cv2.imwrite(output_path, image)
+
+
+  # -------------------------
+# PDF support (no change to your existing functions)
+# -------------------------
+def anonymize_pdf(input_pdf_path, output_pdf_path, dpi=200):
+    """
+    Converts each PDF page to an image, calls your existing anonymize_image() on each page-image,
+    then merges anonymized page images back into a single PDF.
+    This function uses your anonymize_image(image_path, output_path) as-is.
+    """
+    # open pdf with pymupdf
+    doc = fitz.open(input_pdf_path)
+    orig_tmp_files = []    # store original rendered png temp paths
+    anon_tmp_files = []    # store anonymized png temp paths
+
+    try:
+        for i in range(len(doc)):
+            page = doc[i]
+            mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+
+            # render page to PNG bytes
+            img_bytes = pix.tobytes("png")
+
+            # write original page image to temp file
+            orig_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            orig_tmp.write(img_bytes)
+            orig_tmp.flush()
+            orig_tmp.close()
+            orig_tmp_files.append(orig_tmp.name)
+
+            # prepare output temp path for anonymized page
+            anon_tmp_path = orig_tmp.name.replace(".png", "_anon.png")
+            # call your existing function which reads input path and writes output path
+            anonymize_image(orig_tmp.name, anon_tmp_path)
+            anon_tmp_files.append(anon_tmp_path)
+
+        # combine anonymized PNGs into single PDF
+        if not anon_tmp_files:
+            raise ValueError("No pages found in PDF.")
+
+        pil_imgs = [Image.open(p).convert("RGB") for p in anon_tmp_files]
+        first, rest = pil_imgs[0], pil_imgs[1:]
+        first.save(output_pdf_path, save_all=True, append_images=rest)
+        print(f"Anonymized PDF saved to: {output_pdf_path}")
+    finally:
+        # cleanup temp files (original + anon). Keep output_pdf_path as is.
+        doc.close()
+        for p in orig_tmp_files + anon_tmp_files:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+
+# convenience wrapper that decides based on extension
+def anonymize_path(input_path, output_path):
+    ext = os.path.splitext(input_path)[1].lower()
+    if ext == ".pdf":
+        anonymize_pdf(input_path, output_path)
+    else:
+        # image path (jpg/png/...) uses your existing function
+        anonymize_image(input_path, output_path)
+  
 
